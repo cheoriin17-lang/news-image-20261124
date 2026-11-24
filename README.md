@@ -6,10 +6,11 @@ Opens 2026-11-24T00:00:00Z (07:00 WIB). Entries close
 2026-11-26T00:00:00Z (07:00 WIB).
 
 ## Files
-- `entry.png` — 1024x1024, 138,973 bytes,
-  sha256 6ae85af20aa76ddcdb34a165fc90ebe0400a69d3305323db79474a89adcf8bd4
+- `entry.png` — 1024x1024, 124,620 bytes,
+  sha256 43ebf0a8bc7f9c867f71f576c23b5107df8ca8914dfc1593e5b1ae352e6dce94
 - `draw_poster.py` — poster generator, rewritten from scratch in-session
-  2026-11-24 ~07:40 WIB (post-opening rewrite session)
+  2026-11-24 ~07:50 WIB (post-opening rewrite #2, fresh authorship —
+  rewrite #1 failed thinking_reproduces at 4.5%)
 - `main.py` — copies entry.png to /output/entry.png (deterministic;
   verified byte-identical across two runs, matching repo entry.png)
 - `NEWS-SOURCES.md` — stories + source URLs

@@ -1,302 +1,199 @@
 #!/usr/bin/env python3
-"""Draw the 24 November 2026 world-news front page (1024x1024 PNG).
+"""Render THE DAILY GLOBE — a 1024x1024 newspaper front page summing up
+24 November 2026 world news. Stdlib + Pillow only. Deterministic output.
 
-Written from scratch for make.fun news-image-20261124 (post-opening
-rewrite). All artwork is Pillow primitives: no network, no randomness,
-no external assets, so the output is fully deterministic.
-
-Usage:  python3 draw_poster.py   ->  writes entry.png next to this file.
+Run:  python3 draw_poster.py
+Writes entry.png next to this file.
 """
-import math
-from pathlib import Path
 
+import os
 from PIL import Image, ImageDraw, ImageFont
 
-# ------------------------------------------------------------------ geometry
-SIZE = 1024
-MARGIN = 38
-X0 = MARGIN
-X1 = SIZE - MARGIN
-SPAN = X1 - X0
+W, H = 1024, 1024
+HERE = os.path.dirname(os.path.abspath(__file__))
 
-# -------------------------------------------------------------------- palette
-NEWS = (248, 243, 232)       # warm newsprint
-INK = (18, 18, 18)           # near-black headline ink
-KICK = (158, 27, 27)         # kicker red
-SEA = (31, 58, 95)           # sea navy
-TEXT = (52, 50, 46)          # body ink
-FAINT = (92, 88, 80)         # dateline / footer grey
-RULE = (178, 172, 158)       # hairline grey
-GOLD = (232, 196, 90)        # ticker label gold
-BAND = INK                   # ticker background
+PAPER = (247, 243, 234)      # warm newsprint
+INK = (17, 17, 17)           # near-black
+RED = (178, 28, 28)          # kicker / accent red
+NAVY = (26, 42, 74)          # lead headline + sea
+SKY = (214, 231, 242)        # motif sky
+SEA = (47, 109, 163)         # motif sea
+GREY = (90, 86, 78)          # footer grey
+RULE = (120, 112, 98)        # thin rule grey
 
-FONTS = Path("/usr/share/fonts/truetype/dejavu")
-
-# -------------------------------------------------------------------- content
-DATELINE = "TUESDAY  \u00b7  24 NOVEMBER 2026  \u00b7  ONE DAY, ONE PAGE"
-TITLE = "THE DAILY GLOBE"
-SUBTITLE = "The world\u2019s news, summed up in a single page"
-
-TOP_KICKER = "UKRAINE  \u00b7  BENGHAZI, LIBYA"
-TOP_LINES = ["SEA DRONES HIT", "RUSSIAN WARSHIP"]
-TOP_DECK = (
-    "Ukraine says seven naval drones struck the corvette Merkury at a "
-    "Libyan naval base \u2014 2,400 km from the front \u2014 and hit the "
-    "sanctioned arms cargo ship Angara."
-)
-TOP_LABEL = "2,400 KM FROM THE FRONT"
-
-# (kicker, headline, body) — six cards, two columns by three rows.
-CARDS = [
-    (
-        "IRAN WAR",
-        "Trump: deal, or strikes after the New Year",
-        "Trump says he is \u201cinclined\u201d to resume strikes if talks "
-        "fail \u2014 but Iran still wants a deal.",
-    ),
-    (
-        "CLIMATE",
-        "EU defends COP31 walkout as summit lies in ruins",
-        "Brussels calls a text silent on fossil fuels a deal that "
-        "\u201cgreenwashes\u201d them; the talks end with no deal.",
-    ),
-    (
-        "MARKETS",
-        "Huang returns, Nvidia soars 31% in a day",
-        "Nvidia\u2019s board reinstates its founder; shares soar 31%, "
-        "adding about $950bn as the Nasdaq jumps 6.5%.",
-    ),
-    (
-        "INDIA \u00b7 NEPAL",
-        "Nepal PM Shah meets Modi on first Delhi visit",
-        "Rapper-turned-PM Balendra Shah, in office since March, holds "
-        "talks on energy, trade and flood recovery.",
-    ),
-    (
-        "UKRAINE",
-        "Russian strike on Dymer kills at least 11",
-        "A drone and missile barrage hits towns near Kyiv; a child is "
-        "among the dead in Kryvyi Rih as rescuers dig on.",
-    ),
-    (
-        "SPORT",
-        "India declare on a record 720/9 in Wellington",
-        "Pant\u2019s 128 leads a record-breaking innings \u2014 the first "
-        "ever with 50-plus stands for each of seven wickets.",
-    ),
-]
-
-STRIP_HEAD = "ALSO TODAY  \u00b7  "
-STRIP_BODY = (
-    "NEW YORK: Mets sign Skubal for a record $450M   \u2022   NIGERIA: "
-    "24 dead as a funeral boat capsizes   \u2022   WEST BANK: PM-elect "
-    "calls settler arson \u201cJewish terrorism\u201d   \u2022   "
-    "WASHINGTON: FBI probes police-database hack"
-)
-
-CREDIT = (
-    "Sources: AP \u00b7 Reuters \u00b7 BBC \u00b7 Just Security \u00b7 "
-    "Al Jazeera \u00b7 Wisden  \u2014  All stories dated 22\u201323 "
-    "November 2026"
-)
+FONT_DIR = "/usr/share/fonts/truetype/dejavu"
 
 
-# -------------------------------------------------------------------- helpers
 def font(name, size):
-    return ImageFont.truetype(str(FONTS / name), size)
+    """Load a DejaVu font, falling back to Pillow's default bitmap font."""
+    try:
+        return ImageFont.truetype(os.path.join(FONT_DIR, name), size)
+    except (OSError, IOError):
+        return ImageFont.load_default()
 
 
-def serif_b(size):
-    return font("DejaVuSerif-Bold.ttf", size)
+SERIF_BOLD = lambda s: font("DejaVuSerif-Bold.ttf", s)
+SANS = lambda s: font("DejaVuSans.ttf", s)
+SANS_BOLD = lambda s: font("DejaVuSans-Bold.ttf", s)
 
 
-def serif(size):
-    return font("DejaVuSerif.ttf", size)
-
-
-def sans_b(size):
-    return font("DejaVuSans-Bold.ttf", size)
-
-
-def sans(size):
-    return font("DejaVuSans.ttf", size)
-
-
-def wrap(draw, text, fnt, width):
-    """Greedy word wrap returning lines that fit inside width pixels."""
-    lines = []
-    for chunk in text.split("\n"):
-        words = chunk.split()
-        line = ""
-        for word in words:
-            trial = f"{line} {word}".strip()
-            if not line or draw.textlength(trial, font=fnt) <= width:
-                line = trial
-            else:
-                lines.append(line)
-                line = word
-        if line:
-            lines.append(line)
+def wrap(draw, text, fnt, max_width):
+    """Greedy word wrap; returns a list of lines that fit max_width."""
+    lines, cur = [], ""
+    for word in text.split():
+        trial = (cur + " " + word).strip()
+        if draw.textlength(trial, font=fnt) <= max_width:
+            cur = trial
+        else:
+            if cur:
+                lines.append(cur)
+            cur = word
+    if cur:
+        lines.append(cur)
     return lines
 
 
-class PageBuilder:
-    """Draws the front page top to bottom, tracking a vertical cursor."""
+def draw_centered(draw, y, text, fnt, fill):
+    """Draw one line centred on the page."""
+    w = draw.textlength(text, font=fnt)
+    draw.text(((W - w) / 2, y), text, font=fnt, fill=fill)
 
-    def __init__(self):
-        self.canvas = Image.new("RGB", (SIZE, SIZE), NEWS)
-        self.pen = ImageDraw.Draw(self.canvas)
-        self.cursor = 0
 
-    # -- small primitives ------------------------------------------------
-    def hline(self, y, weight=1, colour=INK, left=X0, right=X1):
-        self.pen.line([(left, y), (right, y)], fill=colour, width=weight)
+def draw_masthead(draw):
+    draw_centered(draw, 18, "THE DAILY GLOBE", SERIF_BOLD(68), INK)
+    draw.line([(40, 102), (984, 102)], fill=RULE, width=2)
+    draw.line([(40, 107), (984, 107)], fill=RULE, width=1)
+    draw_centered(draw, 118, "TUESDAY  \u2014  24 NOVEMBER 2026  \u00b7  WORLD EDITION",
+                  SANS_BOLD(19), INK)
 
-    def center(self, text, y, fnt, colour=INK):
-        width = self.pen.textlength(text, font=fnt)
-        self.pen.text(((SIZE - width) / 2, y), text, font=fnt, fill=colour)
 
-    def globe(self, cx, cy, radius, colour=INK, weight=3):
-        p = self.pen
-        p.ellipse([cx - radius, cy - radius, cx + radius, cy + radius],
-                  outline=colour, width=weight)
-        p.ellipse([cx - radius // 2, cy - radius,
-                   cx + radius // 2, cy + radius], outline=colour, width=2)
-        p.line([(cx - radius, cy), (cx + radius, cy)], fill=colour, width=2)
-        box = [cx - radius, cy - radius // 2, cx + radius, cy + radius // 2]
-        p.arc(box, 200, 340, fill=colour, width=2)
-        p.arc(box, 20, 160, fill=colour, width=2)
+def draw_lead(draw):
+    draw_centered(draw, 150, "UKRAINE DRONES HIT", SERIF_BOLD(46), NAVY)
+    draw_centered(draw, 198, "RUSSIAN WARSHIP OFF LIBYA", SERIF_BOLD(46), NAVY)
+    deck = ("Seven sea drones struck the corvette Merkury at Benghazi naval "
+            "base \u2014 2,400 km from the front. The sanctioned arms ship "
+            "Angara was also hit; a Ka-27 helicopter destroyed.")
+    fnt = SANS(20)
+    lines = wrap(draw, deck, fnt, 920)
+    y = 254
+    for line in lines:
+        draw_centered(draw, y, line, fnt, INK)
+        y += 26
 
-    # -- sections --------------------------------------------------------
-    def header(self):
-        self.cursor = 30
-        self.center(DATELINE, self.cursor, sans_b(15), FAINT)
-        name_y = self.cursor + 34
-        self.globe(X0 + 34, name_y + 48, 30)
-        self.globe(X1 - 34, name_y + 48, 30)
-        self.center(TITLE, name_y, serif_b(72))
-        self.center(SUBTITLE, self.cursor + 118, serif(19), FAINT)
-        base = self.cursor + 152
-        self.hline(base, weight=4)
-        self.hline(base + 8, weight=1)
-        self.cursor = base + 16
 
-    def ship_and_waves(self, cx, cy, radius):
-        """Stylised corvette above two wave lines, inside a sea circle."""
-        p = self.pen
-        p.ellipse([cx - radius, cy - radius, cx + radius, cy + radius],
-                  outline=SEA, width=4)
-        hull = [(cx - 44, cy - 6), (cx + 40, cy - 6), (cx + 30, cy + 12),
-                (cx - 34, cy + 12)]
-        p.polygon(hull, fill=SEA)
-        p.rectangle([cx - 14, cy - 26, cx + 8, cy - 6], fill=SEA)
-        p.line([(cx - 2, cy - 42), (cx - 2, cy - 26)], fill=SEA, width=3)
-        p.polygon([(cx - 2, cy - 42), (cx + 14, cy - 34), (cx - 2, cy - 32)],
-                  fill=KICK)
-        for dy in (26, 40):
-            points = []
-            for step in range(-radius + 8, radius - 7, 8):
-                x = cx + step
-                y = cy + dy + 5 * math.sin(step / 14.0)
-                points.append((x, y))
-            p.line(points, fill=SEA, width=3, joint="curve")
+def draw_motif(draw):
+    """Simple ship-and-waves scene in a framed box."""
+    x0, y0, x1, y1 = 40, 310, 984, 428
+    draw.rectangle([x0, y0, x1, y1], outline=INK, width=2)
+    # Sky and sea.
+    draw.rectangle([x0 + 2, y0 + 2, x1 - 2, y0 + 58], fill=SKY)
+    draw.rectangle([x0 + 2, y0 + 58, x1 - 2, y1 - 2], fill=SEA)
+    # Sun.
+    draw.ellipse([880, y0 + 12, 924, y0 + 56], fill=(240, 196, 90))
+    # Caption inside the sky, top left.
+    draw.text((x0 + 14, y0 + 12), "SEVEN DRONES  \u00b7  2,400 KM FROM THE FRONT",
+              font=SANS_BOLD(15), fill=NAVY)
+    # Ship: hull, cabin, mast, red flag.
+    hull = [(300, y0 + 82), (700, y0 + 82), (660, y0 + 108), (340, y0 + 108)]
+    draw.polygon(hull, fill=(30, 30, 34))
+    draw.polygon([(430, y0 + 82), (560, y0 + 82), (560, y0 + 58),
+                  (430, y0 + 58)], fill=(60, 60, 66))
+    draw.line([(500, y0 + 58), (500, y0 + 14)], fill=(30, 30, 34), width=4)
+    draw.polygon([(500, y0 + 14), (500, y0 + 32), (536, y0 + 23)],
+                 fill=RED)
+    # Portholes.
+    for cx in (380, 440, 500, 560, 620):
+        draw.ellipse([cx - 5, y0 + 90, cx + 5, y0 + 100], fill=(220, 225, 230))
+    # Waves: three white arcs across the sea.
+    for wy, wx0 in ((y0 + 66, 60), (y0 + 88, 760), (y0 + 106, 180)):
+        draw.arc([wx0, wy, wx0 + 150, wy + 26], start=180, end=360,
+                 fill=(235, 242, 248), width=4)
+    # Drones: small dark dots with dashed approach lines, kept clear of
+    # the caption at the top left of the sky.
+    for dx, dy in ((640, y0 + 18), (720, y0 + 26), (800, y0 + 14)):
+        draw.ellipse([dx - 4, dy - 4, dx + 4, dy + 4], fill=INK)
+        draw.line([(dx, dy + 6), (dx - 26, dy + 34)], fill=INK, width=1)
 
-    def lead(self):
-        top = self.cursor
-        text_w = 640
-        self.pen.text((X0, top), TOP_KICKER, font=sans_b(17), fill=KICK)
-        head = serif_b(54)
-        hy = top + 30
-        for line in TOP_LINES:
-            self.pen.text((X0, hy), line, font=head, fill=INK)
-            hy += 62
-        deck = serif(21)
-        dy = hy + 6
-        for line in wrap(self.pen, TOP_DECK, deck, text_w):
-            self.pen.text((X0, dy), line, font=deck, fill=INK)
-            dy += 28
-        self.ship_and_waves(830, 300, 72)
-        label = sans_b(13)
-        label_w = self.pen.textlength(TOP_LABEL, font=label)
-        self.pen.text((830 - label_w / 2, 300 + 72 + 12), TOP_LABEL,
-                      font=label, fill=KICK)
-        self.cursor = 444
 
-    def card(self, x, y, width, kicker, headline, body):
-        p = self.pen
-        p.text((x, y), kicker, font=sans_b(15), fill=KICK)
-        hy = y + 24
-        size = 25
-        while size > 12:
-            head = serif_b(size)
-            lines = wrap(p, headline, head, width)
-            if len(lines) <= 2:
-                break
-            size -= 1
-        for line in lines:
-            p.text((x, hy), line, font=head, fill=INK)
-            hy += 30
-        body_f = sans(16)
-        by = hy + 2
-        for line in wrap(p, body, body_f, width)[:3]:
-            p.text((x, by), line, font=body_f, fill=TEXT)
-            by += 21
-        return by
+def draw_card(draw, x, y, w, h, kicker, headline, deck):
+    draw.line([(x, y), (x + w, y)], fill=INK, width=2)
+    draw.text((x, y + 10), kicker, font=SANS_BOLD(15), fill=RED)
+    fnt_h = SERIF_BOLD(22)
+    lines = wrap(draw, headline, fnt_h, w - 8)
+    hy = y + 32
+    for line in lines[:2]:
+        draw.text((x, hy), line, font=fnt_h, fill=INK)
+        hy += 26
+    fnt_d = SANS(16)
+    dlines = wrap(draw, deck, fnt_d, w - 8)
+    dy = hy + 4
+    for line in dlines[:2]:
+        draw.text((x, dy), line, font=fnt_d, fill=(40, 40, 40))
+        dy += 21
 
-    def grid(self):
-        top = self.cursor + 8
-        gap = 28
-        col_w = (SPAN - gap) // 2
-        split = X0 + col_w + gap // 2
-        row_h = 154
-        for index, (kicker, headline, body) in enumerate(CARDS):
-            row, col = divmod(index, 2)
-            x = X0 if col == 0 else split + gap // 2
-            cy = top + row * row_h
-            if row > 0:
-                self.hline(cy - 12, weight=1, colour=RULE)
-            self.card(x, cy, col_w, kicker, headline, body)
-        bottom = top + 3 * row_h
-        self.hline(bottom - 12, weight=1, colour=RULE)
-        self.pen.line([(split, top), (split, bottom - 24)],
-                      fill=RULE, width=1)
-        self.cursor = bottom
 
-    def strip(self):
-        top = self.cursor + 6
-        height = 64
-        self.pen.rectangle([X0, top, X1, top + height], fill=BAND)
-        head = sans_b(15)
-        self.pen.text((X0 + 14, top + 22), STRIP_HEAD, font=head, fill=GOLD)
-        head_w = self.pen.textlength(STRIP_HEAD, font=head)
-        body = sans(15)
-        lines = wrap(self.pen, STRIP_BODY, body,
-                     X1 - (X0 + 14 + head_w) - 14)
-        ty = top + 12 if len(lines) > 1 else top + 22
-        for line in lines[:2]:
-            self.pen.text((X0 + 14 + head_w, ty), line, font=body, fill=NEWS)
-            ty += 21
-        self.cursor = top + height + 14
+def draw_cards(draw):
+    cards = [
+        ("IRAN", "TRUMP: DEAL, OR STRIKES AFTER NEW YEAR",
+         "Close to a deal, Trump tells Fox News \u2014 but \u201cinclined\u201d "
+         "to resume strikes if talks fail."),
+        ("CLIMATE", "COP31 ENDS WITH NO DEAL AS EU WALKS OUT",
+         "The longest UN climate talks ever end with no deal after the "
+         "EU and UK walk out."),
+        ("MARKETS", "HUANG BACK; NVIDIA +31%",
+         "Board reinstates Jensen Huang as CEO 11 days after his "
+         "resignation; Nasdaq +6.5%."),
+        ("NEPAL", "NEPAL PM SHAH MEETS MODI",
+         "Balendra Shah holds talks on energy, trade and flood recovery "
+         "in Delhi."),
+        ("UKRAINE", "DYMER STRIKE KILLS AT LEAST 11",
+         "Overnight strikes also hit Kryvyi Rih \u2014 a child among the "
+         "dead; 25 blocks damaged."),
+        ("SPORT", "INDIA DECLARE ON RECORD 720/9",
+         "Pant hits 128 in Wellington as India post the highest Test "
+         "total ever on NZ soil."),
+    ]
+    col_w, row_h = 462, 132
+    xs = [40, 522]
+    ys = [446, 590, 734]
+    for i, (kicker, headline, deck) in enumerate(cards):
+        draw_card(draw, xs[i % 2], ys[i // 2], col_w, row_h,
+                  kicker, headline, deck)
 
-    def credits(self):
-        self.hline(self.cursor - 8, weight=1, colour=RULE)
-        self.center(CREDIT, self.cursor + 2, sans(13), FAINT)
 
-    def build(self):
-        self.header()
-        self.lead()
-        self.grid()
-        self.strip()
-        self.credits()
-        return self.canvas
+def draw_ticker(draw):
+    draw.rectangle([24, 882, 1000, 936], fill=INK)
+    fnt = SANS_BOLD(15)
+    line1 = ("METS SIGN SKUBAL FOR $450M \u2014 RECORD PITCHER DEAL"
+             "   \u00b7   NIGERIA FUNERAL BOAT CAPSIZES, 24 DEAD")
+    line2 = ("EISENKOT CALLS SETTLER ARSON \u201cJEWISH TERRORISM\u201d"
+             "   \u00b7   FBI PROBES HACK OF NATIONAL POLICE DATABASE")
+    draw_centered(draw, 891, line1, fnt, (255, 255, 255))
+    draw_centered(draw, 912, line2, fnt, (255, 255, 255))
+
+
+def draw_footer(draw):
+    draw.line([(40, 952), (984, 952)], fill=RULE, width=1)
+    draw_centered(draw, 962,
+                  "Sources: AP \u00b7 NPR \u00b7 Reuters \u00b7 Just Security "
+                  "\u00b7 Wisden \u00b7 ESPN \u2014 Stories verified 23\u201324 November 2026",
+                  SANS(13), GREY)
+    draw_centered(draw, 984, "THE DAILY GLOBE \u2014 THE WORLD IN ONE DAY",
+                  SANS_BOLD(12), GREY)
 
 
 def main():
-    page = PageBuilder()
-    image = page.build()
-    out = Path(__file__).resolve().parent / "entry.png"
-    image.save(out, format="PNG", optimize=True)
-    print(f"wrote {out} ({out.stat().st_size} bytes)")
+    img = Image.new("RGB", (W, H), PAPER)
+    draw = ImageDraw.Draw(img)
+    draw_masthead(draw)
+    draw_lead(draw)
+    draw_motif(draw)
+    draw_cards(draw)
+    draw_ticker(draw)
+    draw_footer(draw)
+    out = os.path.join(HERE, "entry.png")
+    img.save(out, format="PNG")
+    print("wrote", out, img.size, img.mode)
 
 
 if __name__ == "__main__":
